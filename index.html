@@ -21,11 +21,13 @@
     <style>
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        #reader { width: 100% !important; border: none !important; border-radius: 1rem; overflow: hidden; }
+        #reader { width: 100% !important; border: none !important; border-radius: 1rem; overflow: hidden; background: #000; }
+        /* Styling for interne knapper i biblioteket */
         #reader__dashboard_section_csr button { 
             background: #2563eb !important; color: white !important; border-radius: 0.5rem !important; padding: 0.5rem 1rem !important;
             font-weight: 600 !important; border: none !important; margin-top: 10px !important;
         }
+        #reader video { border-radius: 1rem; }
     </style>
 </head>
 <body class="bg-gray-50 sm:bg-gray-200">
@@ -47,6 +49,9 @@
         const Layers = ({ size = 24 }) => (
           <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline></svg>
         );
+        const AlertCircle = ({ size = 24 }) => (
+          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        );
 
         function App() {
           const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('trelast_plukkliste') || '[]'));
@@ -59,6 +64,7 @@
           const [activeTab, setActiveTab] = useState('plukk');
           
           const [isScanning, setIsScanning] = useState(false);
+          const [scanError, setScanError] = useState(null);
           const [scannedCode, setScannedCode] = useState(null);
           const [showBarcodeModal, setShowBarcodeModal] = useState(false);
           const [autoDetectedLength, setAutoDetectedLength] = useState(null);
@@ -78,10 +84,7 @@
             "36x98", "36x148", "36x198", "48x48", "48x73", "48x98", "48x148", "48x198", "48x223", "98x98"
           ];
 
-          // Smart-tolking av strekkode for å finne lengde
           const parseCodeForLength = (code) => {
-            // GS1-128 Sjekk: Ser etter AI 311 (lengde i meter med 2 desimaler)
-            // Ofte format: (3112)000420 betyr 4.20m
             if (code.includes("311")) {
                 const index = code.indexOf("311");
                 const potentialLength = code.substring(index + 4, index + 8);
@@ -89,44 +92,58 @@
                     return (parseInt(potentialLength) / 100).toString();
                 }
             }
-            
-            // Variabel lengde EAN-13 (starter på 21-25)
-            // Ofte: 23XXXXXLLLLC der LLLL er lengde i cm
             if (code.length === 13 && (code.startsWith("21") || code.startsWith("23") || code.startsWith("25"))) {
                 const lenDigits = code.substring(7, 12);
                 const val = parseInt(lenDigits);
-                if (val > 100 && val < 900) return (val / 100).toString(); // Antar meter hvis tallet er logisk
-                if (val > 1000) return (val / 1000).toString(); // Antar mm -> meter
+                if (val > 100 && val < 900) return (val / 100).toString();
+                if (val > 1000) return (val / 1000).toString();
             }
-
             return null;
           };
 
-          const startScanner = () => {
+          const startScanner = async () => {
+            setScanError(null);
             setIsScanning(true);
-            setTimeout(() => {
+            
+            // Vent på at DOM-elementet "reader" er rendret
+            await new Promise(r => setTimeout(r, 300));
+
+            try {
+              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("Kamera er ikke tilgjengelig i denne nettleseren. Sjekk at du bruker HTTPS.");
+              }
+
               const html5QrCode = new Html5Qrcode("reader");
               scannerRef.current = html5QrCode;
-              html5QrCode.start(
+              
+              await html5QrCode.start(
                 { facingMode: "environment" },
                 { fps: 10, qrbox: { width: 250, height: 150 } },
                 (decodedText) => {
                   stopScanner();
                   handleScannedCode(decodedText);
                 },
-                (errorMessage) => {}
+                (errorMessage) => {
+                  // Biblioteket kaller dette ofte under søk, vi logger det ikke til bruker
+                }
               );
-            }, 100);
-          };
-
-          const stopScanner = () => {
-            if (scannerRef.current) {
-              scannerRef.current.stop().then(() => {
-                setIsScanning(false);
-              }).catch(err => console.error(err));
-            } else {
+            } catch (err) {
+              console.error("Kamerafeil:", err);
+              setScanError(err.message || "Kunne ikke starte kamera.");
               setIsScanning(false);
             }
+          };
+
+          const stopScanner = async () => {
+            if (scannerRef.current) {
+              try {
+                await scannerRef.current.stop();
+                scannerRef.current = null;
+              } catch (err) {
+                console.error("Kunne ikke stoppe skanner:", err);
+              }
+            }
+            setIsScanning(false);
           };
 
           const handleScannedCode = (code) => {
@@ -134,7 +151,6 @@
             if (detectedLength) {
                 setLength(detectedLength);
                 setAutoDetectedLength(detectedLength);
-                // Vi viser en liten bekreftelse senere
             } else {
                 setAutoDetectedLength(null);
             }
@@ -192,11 +208,11 @@
               <header className="bg-blue-600 text-white p-4 pt-8 shadow-md z-10">
                 <div className="flex justify-between items-center mb-4">
                   <h1 className="text-xl font-bold">Trelast Plukkliste</h1>
-                  <button onClick={() => { if(confirm('Slett alt?')) setItems([]) }} className="p-2 bg-blue-700 rounded-full"><Trash2 size={20}/></button>
+                  <button onClick={() => { if(confirm('Slett alt?')) setItems([]) }} className="p-2 bg-blue-700 rounded-full transition-transform active:scale-90"><Trash2 size={20}/></button>
                 </div>
                 <div className="flex bg-blue-700 rounded-lg p-1">
                   {['plukk', 'liste'].map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 text-xs font-bold uppercase rounded-md ${activeTab === t ? 'bg-blue-600 shadow' : 'text-blue-200'}`}>
+                    <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 text-xs font-bold uppercase rounded-md transition-all ${activeTab === t ? 'bg-blue-600 shadow' : 'text-blue-200'}`}>
                       {t === 'plukk' ? 'Registrer' : 'Oppsummering'}
                     </button>
                   ))}
@@ -206,12 +222,26 @@
               <main className="flex-1 overflow-y-auto bg-gray-50 p-4 pb-20">
                 {activeTab === 'plukk' && (
                   <div className="space-y-4">
-                    <button onClick={isScanning ? stopScanner : startScanner} className={`w-full flex items-center justify-center p-4 rounded-2xl font-bold text-white transition-all shadow-lg ${isScanning ? 'bg-red-500' : 'bg-gray-800'}`}>
+                    <button 
+                        onClick={isScanning ? stopScanner : startScanner} 
+                        className={`w-full flex items-center justify-center p-4 rounded-2xl font-bold text-white transition-all shadow-lg active:scale-95 ${isScanning ? 'bg-red-500' : 'bg-gray-800'}`}
+                    >
                       <Barcode size={24} className="mr-2"/>
                       {isScanning ? 'Avbryt skanning' : 'Skann merkelapp'}
                     </button>
 
-                    {isScanning && <div id="reader" className="mb-4 shadow-inner"></div>}
+                    {scanError && (
+                      <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-start text-red-700 text-sm animate-pulse">
+                        <AlertCircle size={20} className="mr-2 flex-shrink-0" />
+                        <p>{scanError}</p>
+                      </div>
+                    )}
+
+                    {isScanning && (
+                        <div className="overflow-hidden rounded-2xl shadow-inner bg-black">
+                            <div id="reader"></div>
+                        </div>
+                    )}
 
                     <form onSubmit={handleAddItem} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                       <div className="flex bg-gray-100 p-1 rounded-xl">
@@ -222,7 +252,7 @@
 
                       <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-400 uppercase ml-1">Dimensjon</label>
-                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold appearance-none">
+                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold appearance-none focus:ring-2 focus:ring-blue-500 outline-none">
                           {commonDimensions.map(d => <option key={d} value={d}>{d} mm</option>)}
                         </select>
                       </div>
@@ -231,13 +261,13 @@
                         <div className="flex-1 space-y-1">
                            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Lengde (meter)</label>
                            <div className="relative">
-                            <input type="text" inputMode="decimal" placeholder="F.eks 4.8" value={length} onChange={e => setLength(e.target.value)} className={`w-full p-3 bg-gray-50 border rounded-xl font-bold transition-all ${autoDetectedLength ? 'border-green-500 bg-green-50 ring-2 ring-green-100' : 'border-gray-200'}`} />
-                            {autoDetectedLength && <span className="absolute right-3 top-3 text-green-600 text-xs font-bold">Lest!</span>}
+                            <input type="text" inputMode="decimal" placeholder="F.eks 4.8" value={length} onChange={e => setLength(e.target.value)} className={`w-full p-3 bg-gray-50 border rounded-xl font-bold transition-all focus:ring-2 focus:ring-blue-500 outline-none ${autoDetectedLength ? 'border-green-500 bg-green-50 ring-2 ring-green-100' : 'border-gray-200'}`} />
+                            {autoDetectedLength && <span className="absolute right-3 top-3 text-green-600 text-xs font-bold bg-white px-1 rounded">Lest!</span>}
                            </div>
                         </div>
                         <div className="w-20 space-y-1">
                            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Antall</label>
-                           <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-center" />
+                           <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-center focus:ring-2 focus:ring-blue-500 outline-none" />
                         </div>
                       </div>
 
@@ -260,7 +290,7 @@
                             {group.items.map(i => (
                               <div key={i.id} className="flex justify-between items-center text-sm p-3 bg-gray-50 rounded-xl">
                                 <span className="font-medium">{i.quantity} stk à {i.length} m</span>
-                                <button onClick={() => setItems(items.filter(x => x.id !== i.id))} className="text-red-400 p-1 hover:bg-red-50 rounded-full transition-colors"><Trash2 size={16}/></button>
+                                <button onClick={() => setItems(items.filter(x => x.id !== i.id))} className="text-red-400 p-2 hover:bg-red-50 rounded-full transition-colors active:scale-90"><Trash2 size={16}/></button>
                               </div>
                             ))}
                           </div>
@@ -281,7 +311,7 @@
                              <p className="text-center text-gray-400 py-10">Ingen varer registrert ennå.</p>
                            ) : (
                              Object.values(groupedItems).map(g => (
-                               <div key={g.dimension + g.materialType} className="flex justify-between items-end border-b border-gray-50 pb-2">
+                               <div key={g.dimension + g.materialType} className="flex justify-between items-end border-b border-gray-50 pb-2 last:border-0">
                                   <div className="flex flex-col">
                                     <span className="text-xs font-bold text-gray-400 uppercase">{g.materialType}</span>
                                     <span className="text-gray-800 font-bold">{g.dimension} mm</span>
@@ -305,7 +335,7 @@
                     <div className="bg-blue-50 p-4 rounded-2xl text-center font-mono font-bold text-blue-600 break-all">{scannedCode}</div>
                     
                     <div className="space-y-3">
-                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold shadow-sm">
+                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold shadow-sm outline-none">
                           {commonDimensions.map(d => <option key={d} value={d}>{d} mm</option>)}
                         </select>
 
