@@ -77,6 +77,7 @@
           });
 
           const [dimension, setDimension] = useState('48x98');
+          const [materialType, setMaterialType] = useState('Vanlig'); // Ny state for materialtype
           const [length, setLength] = useState('');
           const [quantity, setQuantity] = useState('1'); 
           const [error, setError] = useState('');
@@ -108,6 +109,7 @@
             const newItem = {
               id: Date.now().toString(),
               dimension: dimension,
+              materialType: materialType, // Lagre materialtype
               length: parsedLength,
               quantity: parsedQuantity,
               subtotal: parsedLength * parsedQuantity
@@ -134,13 +136,23 @@
 
           const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
 
+          // Grupper varer etter dimensjon OG materialtype
           const groupedItems = items.reduce((acc, item) => {
-            if (!acc[item.dimension]) {
-              acc[item.dimension] = { items: [], totalMeters: 0, totalCount: 0 };
+            const mType = item.materialType || 'Vanlig'; // Fallback for eldre lagrede varer uten materialtype
+            const key = `${item.dimension}-${mType}`;
+            
+            if (!acc[key]) {
+              acc[key] = { 
+                dimension: item.dimension, 
+                materialType: mType, 
+                items: [], 
+                totalMeters: 0, 
+                totalCount: 0 
+              };
             }
-            acc[item.dimension].items.push(item);
-            acc[item.dimension].totalMeters += item.subtotal;
-            acc[item.dimension].totalCount += item.quantity;
+            acc[key].items.push(item);
+            acc[key].totalMeters += item.subtotal;
+            acc[key].totalCount += item.quantity;
             return acc;
           }, {});
 
@@ -154,8 +166,8 @@
 
           const copySummary = () => {
             let text = "Oppsummering Trelast:\n\n";
-            Object.entries(groupedItems).forEach(([dim, group]) => {
-              text += `${dim} mm: ${group.totalMeters.toFixed(2)} lm (${group.totalCount} stk)\n`;
+            Object.values(groupedItems).forEach((group) => {
+              text += `${group.dimension} mm (${group.materialType}): ${group.totalMeters.toFixed(2)} lm (${group.totalCount} stk)\n`;
             });
             
             const textArea = document.createElement("textarea");
@@ -217,7 +229,34 @@
                     <section className="p-4 bg-white border-b border-gray-100 shadow-sm z-10">
                       <form onSubmit={handleAddItem} className="space-y-4">
                         
-                        <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {/* Valg av Materialtype */}
+                        <div className="flex bg-gray-100 p-1 rounded-xl">
+                          <button
+                            type="button"
+                            onClick={() => setMaterialType('Vanlig')}
+                            className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                              materialType === 'Vanlig' 
+                                ? 'bg-white shadow-sm text-gray-900 border border-gray-200' 
+                                : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                          >
+                            Vanlig
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMaterialType('Trykkimpregnert')}
+                            className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                              materialType === 'Trykkimpregnert' 
+                                ? 'bg-green-100 shadow-sm text-green-800 border border-green-200' 
+                                : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                          >
+                            Trykkimpregnert
+                          </button>
+                        </div>
+
+                        {/* Hurtigvalg for lengder */}
+                        <div className="flex space-x-2 overflow-x-auto pb-2 pt-2 scrollbar-hide">
                           {standardLengths.map(sl => (
                             <button
                               key={sl}
@@ -267,155 +306,3 @@
                               </div>
                               <input
                                 ref={lengthInputRef}
-                                type="text"
-                                inputMode="decimal"
-                                value={length}
-                                onChange={(e) => setLength(e.target.value)}
-                                placeholder="F.eks 4.8"
-                                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-lg transition-shadow"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="w-1/3">
-                            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">
-                              Antall
-                            </label>
-                            <div className="relative">
-                              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Hash size={18} className="text-gray-400" />
-                              </div>
-                              <input
-                                type="number"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                value={quantity}
-                                onChange={(e) => setQuantity(e.target.value)}
-                                placeholder="Stk"
-                                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-lg transition-shadow"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {error && <p className="text-red-500 text-sm animate-pulse">{error}</p>}
-
-                        <button
-                          type="submit"
-                          className="w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-xl shadow-sm text-lg font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 active:scale-[0.98] transition-all"
-                        >
-                          <Plus size={24} className="mr-2" />
-                          Legg til i liste
-                        </button>
-                      </form>
-                    </section>
-
-                    {/* Liste Seksjon */}
-                    <main className="flex-1 overflow-y-auto bg-gray-50 p-4 pb-6">
-                      {items.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4 pt-10">
-                          <Layers size={64} className="opacity-20" />
-                          <p className="text-center text-lg px-8">
-                            Listen er tom. <br/> Start med å velge dimensjon, lengde og antall ovenfor.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {Object.entries(groupedItems).map(([dim, group]) => (
-                            <div key={dim} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                              <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                                <h2 className="font-bold text-gray-800 text-lg flex items-center">
-                                  <Layers size={18} className="mr-2 text-gray-500" />
-                                  {dim} mm
-                                </h2>
-                                <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded-full">
-                                  {group.totalMeters.toFixed(2)} lm
-                                </span>
-                              </div>
-                              <ul className="divide-y divide-gray-50 p-2">
-                                {group.items.map((item) => (
-                                  <li 
-                                    key={item.id} 
-                                    className="p-2 flex justify-between items-center transition-all hover:bg-gray-50 rounded-xl"
-                                  >
-                                    <div className="flex items-center space-x-4">
-                                      <div className="bg-blue-50 text-blue-700 w-10 h-10 rounded-full flex items-center justify-center font-bold text-md border border-blue-100">
-                                        {item.quantity}x
-                                      </div>
-                                      <div>
-                                        <div className="font-semibold text-gray-900 text-lg">
-                                          {item.length} m
-                                        </div>
-                                        <div className="text-sm text-gray-500 font-medium">
-                                          = {item.subtotal.toFixed(2)} lm
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <button
-                                      onClick={() => removeItem(item.id)}
-                                      className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors active:scale-95"
-                                      aria-label="Slett vare"
-                                    >
-                                      <Trash2 size={22} />
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </main>
-                  </React.Fragment>
-                )}
-
-                {/* Oppsummering Seksjon */}
-                {activeTab === 'oppsummering' && (
-                  <main className="flex-1 overflow-y-auto bg-gray-50 p-4 pb-6">
-                    {Object.keys(groupedItems).length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4 pt-10">
-                        <FileText size={64} className="opacity-20" />
-                        <p className="text-center text-lg px-8">
-                          Ingenting å oppsummere enda.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                          <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Materialliste</h2>
-                          <ul className="space-y-3">
-                            {Object.entries(groupedItems).map(([dim, group]) => (
-                              <li key={dim} className="flex justify-between items-center">
-                                <span className="font-semibold text-gray-700">{dim} mm</span>
-                                <div className="text-right">
-                                  <span className="font-bold text-blue-700">{group.totalMeters.toFixed(2)} lm</span>
-                                  <span className="text-gray-500 text-sm ml-2">({group.totalCount} stk)</span>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        
-                        <button
-                          onClick={copySummary}
-                          className="w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-xl shadow-sm text-lg font-bold text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 active:scale-[0.98] transition-all"
-                        >
-                          {copied ? <Check size={24} className="mr-2 text-green-400" /> : <Copy size={24} className="mr-2" />}
-                          {copied ? 'Kopiert!' : 'Kopier til utklippstavle'}
-                        </button>
-                      </div>
-                    )}
-                  </main>
-                )}
-
-              </div>
-            </div>
-          );
-        }
-
-        // --- Start appen ---
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
