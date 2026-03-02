@@ -2,363 +2,69 @@
 <html lang="no">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Trelast Plukkliste</title>
-    
-    <!-- Tailwind CSS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testbenk for Trelast-strekkoder</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- React & ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- Babel -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- HTML5 QR Code Scanner Library -->
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    
-    <style>
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        #reader { width: 100% !important; border: none !important; border-radius: 1rem; overflow: hidden; background: #000; }
-        /* Styling for interne knapper i biblioteket */
-        #reader__dashboard_section_csr button { 
-            background: #2563eb !important; color: white !important; border-radius: 0.5rem !important; padding: 0.5rem 1rem !important;
-            font-weight: 600 !important; border: none !important; margin-top: 10px !important;
-        }
-        #reader video { border-radius: 1rem; }
-    </style>
+    <!-- Bibliotek for å tegne strekkoder -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 </head>
-<body class="bg-gray-50 sm:bg-gray-200">
-    <div id="root"></div>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-2xl mx-auto space-y-8">
+        <header class="text-center">
+            <h1 class="text-3xl font-bold text-gray-800">Testbenk for Strekkoder</h1>
+            <p class="text-gray-600 mt-2">Bruk appen din til å skanne disse kodene for å teste automatisk lengde-deteksjon.</p>
+        </header>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-
-        // --- Ikoner ---
-        const Trash2 = ({ size = 24 }) => (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-        );
-        const Plus = ({ size = 24 }) => (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        );
-        const Barcode = ({ size = 24 }) => (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14"/></svg>
-        );
-        const Layers = ({ size = 24 }) => (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline></svg>
-        );
-        const AlertCircle = ({ size = 24 }) => (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-        );
-
-        function App() {
-          const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('trelast_plukkliste') || '[]'));
-          const [barcodeDb, setBarcodeDb] = useState(() => JSON.parse(localStorage.getItem('trelast_barcodes') || '{}'));
-          
-          const [dimension, setDimension] = useState('48x98');
-          const [materialType, setMaterialType] = useState('Vanlig');
-          const [length, setLength] = useState('');
-          const [quantity, setQuantity] = useState('1');
-          const [activeTab, setActiveTab] = useState('plukk');
-          
-          const [isScanning, setIsScanning] = useState(false);
-          const [scanError, setScanError] = useState(null);
-          const [scannedCode, setScannedCode] = useState(null);
-          const [showBarcodeModal, setShowBarcodeModal] = useState(false);
-          const [autoDetectedLength, setAutoDetectedLength] = useState(null);
-
-          const scannerRef = useRef(null);
-
-          useEffect(() => {
-            localStorage.setItem('trelast_plukkliste', JSON.stringify(items));
-          }, [items]);
-
-          useEffect(() => {
-            localStorage.setItem('trelast_barcodes', JSON.stringify(barcodeDb));
-          }, [barcodeDb]);
-
-          const commonDimensions = [
-            "11x36", "19x148", "22x148", "23x48", "30x48", "36x48", "36x73",
-            "36x98", "36x148", "36x198", "48x48", "48x73", "48x98", "48x148", "48x198", "48x223", "98x98"
-          ];
-
-          const parseCodeForLength = (code) => {
-            if (code.includes("311")) {
-                const index = code.indexOf("311");
-                const potentialLength = code.substring(index + 4, index + 8);
-                if (!isNaN(potentialLength)) {
-                    return (parseInt(potentialLength) / 100).toString();
-                }
-            }
-            if (code.length === 13 && (code.startsWith("21") || code.startsWith("23") || code.startsWith("25"))) {
-                const lenDigits = code.substring(7, 12);
-                const val = parseInt(lenDigits);
-                if (val > 100 && val < 900) return (val / 100).toString();
-                if (val > 1000) return (val / 1000).toString();
-            }
-            return null;
-          };
-
-          const startScanner = async () => {
-            setScanError(null);
-            setIsScanning(true);
-            
-            // Vent på at DOM-elementet "reader" er rendret
-            await new Promise(r => setTimeout(r, 300));
-
-            try {
-              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("Kamera er ikke tilgjengelig i denne nettleseren. Sjekk at du bruker HTTPS.");
-              }
-
-              const html5QrCode = new Html5Qrcode("reader");
-              scannerRef.current = html5QrCode;
-              
-              await html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 250, height: 150 } },
-                (decodedText) => {
-                  stopScanner();
-                  handleScannedCode(decodedText);
-                },
-                (errorMessage) => {
-                  // Biblioteket kaller dette ofte under søk, vi logger det ikke til bruker
-                }
-              );
-            } catch (err) {
-              console.error("Kamerafeil:", err);
-              setScanError(err.message || "Kunne ikke starte kamera.");
-              setIsScanning(false);
-            }
-          };
-
-          const stopScanner = async () => {
-            if (scannerRef.current) {
-              try {
-                await scannerRef.current.stop();
-                scannerRef.current = null;
-              } catch (err) {
-                console.error("Kunne ikke stoppe skanner:", err);
-              }
-            }
-            setIsScanning(false);
-          };
-
-          const handleScannedCode = (code) => {
-            const detectedLength = parseCodeForLength(code);
-            if (detectedLength) {
-                setLength(detectedLength);
-                setAutoDetectedLength(detectedLength);
-            } else {
-                setAutoDetectedLength(null);
-            }
-
-            if (barcodeDb[code]) {
-              const info = barcodeDb[code];
-              setDimension(info.dimension);
-              setMaterialType(info.materialType);
-            } else {
-              setScannedCode(code);
-              setShowBarcodeModal(true);
-            }
-          };
-
-          const saveBarcodeLink = () => {
-            setBarcodeDb(prev => ({
-              ...prev,
-              [scannedCode]: { dimension, materialType }
-            }));
-            setShowBarcodeModal(false);
-            setScannedCode(null);
-          };
-
-          const handleAddItem = (e) => {
-            if (e) e.preventDefault();
-            const parsedLength = parseFloat(length.replace(',', '.'));
-            const parsedQuantity = parseInt(quantity, 10);
-            if (isNaN(parsedLength) || isNaN(parsedQuantity)) return;
-
-            const newItem = {
-              id: Date.now().toString(),
-              dimension,
-              materialType,
-              length: parsedLength,
-              quantity: parsedQuantity,
-              subtotal: parsedLength * parsedQuantity
-            };
-            setItems([newItem, ...items]);
-            setLength('');
-            setQuantity('1');
-            setAutoDetectedLength(null);
-          };
-
-          const groupedItems = items.reduce((acc, item) => {
-            const key = `${item.dimension}-${item.materialType}`;
-            if (!acc[key]) acc[key] = { dimension: item.dimension, materialType: item.materialType, items: [], totalMeters: 0 };
-            acc[key].items.push(item);
-            acc[key].totalMeters += item.subtotal;
-            return acc;
-          }, {});
-
-          return (
-            <div className="min-h-screen flex flex-col font-sans max-w-md mx-auto bg-white shadow-xl sm:my-8 sm:rounded-3xl overflow-hidden relative">
-              
-              <header className="bg-blue-600 text-white p-4 pt-8 shadow-md z-10">
-                <div className="flex justify-between items-center mb-4">
-                  <h1 className="text-xl font-bold">Trelast Plukkliste</h1>
-                  <button onClick={() => { if(confirm('Slett alt?')) setItems([]) }} className="p-2 bg-blue-700 rounded-full transition-transform active:scale-90"><Trash2 size={20}/></button>
+        <!-- GS1-128 Tester -->
+        <section class="bg-white p-6 rounded-3xl shadow-sm space-y-6">
+            <h2 class="text-xl font-bold text-blue-600 border-b pb-2">GS1-128 (Industristandard / Moelven)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="flex flex-col items-center p-4 border rounded-2xl">
+                    <span class="text-sm font-bold text-gray-400 mb-2">4.20 meter</span>
+                    <svg id="code1"></svg>
+                    <p class="text-xs mt-2 text-gray-500 font-mono">Kode: 3112000420</p>
                 </div>
-                <div className="flex bg-blue-700 rounded-lg p-1">
-                  {['plukk', 'liste'].map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 text-xs font-bold uppercase rounded-md transition-all ${activeTab === t ? 'bg-blue-600 shadow' : 'text-blue-200'}`}>
-                      {t === 'plukk' ? 'Registrer' : 'Oppsummering'}
-                    </button>
-                  ))}
+                <div class="flex flex-col items-center p-4 border rounded-2xl">
+                    <span class="text-sm font-bold text-gray-400 mb-2">4.80 meter</span>
+                    <svg id="code2"></svg>
+                    <p class="text-xs mt-2 text-gray-500 font-mono">Kode: 3112000480</p>
                 </div>
-              </header>
-
-              <main className="flex-1 overflow-y-auto bg-gray-50 p-4 pb-20">
-                {activeTab === 'plukk' && (
-                  <div className="space-y-4">
-                    <button 
-                        onClick={isScanning ? stopScanner : startScanner} 
-                        className={`w-full flex items-center justify-center p-4 rounded-2xl font-bold text-white transition-all shadow-lg active:scale-95 ${isScanning ? 'bg-red-500' : 'bg-gray-800'}`}
-                    >
-                      <Barcode size={24} className="mr-2"/>
-                      {isScanning ? 'Avbryt skanning' : 'Skann merkelapp'}
-                    </button>
-
-                    {scanError && (
-                      <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-start text-red-700 text-sm animate-pulse">
-                        <AlertCircle size={20} className="mr-2 flex-shrink-0" />
-                        <p>{scanError}</p>
-                      </div>
-                    )}
-
-                    {isScanning && (
-                        <div className="overflow-hidden rounded-2xl shadow-inner bg-black">
-                            <div id="reader"></div>
-                        </div>
-                    )}
-
-                    <form onSubmit={handleAddItem} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                      <div className="flex bg-gray-100 p-1 rounded-xl">
-                        {['Vanlig', 'Trykkimpregnert'].map(m => (
-                          <button key={m} type="button" onClick={() => setMaterialType(m)} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${materialType === m ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>{m}</button>
-                        ))}
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-400 uppercase ml-1">Dimensjon</label>
-                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold appearance-none focus:ring-2 focus:ring-blue-500 outline-none">
-                          {commonDimensions.map(d => <option key={d} value={d}>{d} mm</option>)}
-                        </select>
-                      </div>
-
-                      <div className="flex space-x-2">
-                        <div className="flex-1 space-y-1">
-                           <label className="text-xs font-bold text-gray-400 uppercase ml-1">Lengde (meter)</label>
-                           <div className="relative">
-                            <input type="text" inputMode="decimal" placeholder="F.eks 4.8" value={length} onChange={e => setLength(e.target.value)} className={`w-full p-3 bg-gray-50 border rounded-xl font-bold transition-all focus:ring-2 focus:ring-blue-500 outline-none ${autoDetectedLength ? 'border-green-500 bg-green-50 ring-2 ring-green-100' : 'border-gray-200'}`} />
-                            {autoDetectedLength && <span className="absolute right-3 top-3 text-green-600 text-xs font-bold bg-white px-1 rounded">Lest!</span>}
-                           </div>
-                        </div>
-                        <div className="w-20 space-y-1">
-                           <label className="text-xs font-bold text-gray-400 uppercase ml-1">Antall</label>
-                           <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-center focus:ring-2 focus:ring-blue-500 outline-none" />
-                        </div>
-                      </div>
-
-                      <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold flex items-center justify-center shadow-blue-200 shadow-lg active:scale-95 transition-transform">
-                        <Plus className="mr-2"/> Legg til i liste
-                      </button>
-                    </form>
-
-                    <div className="space-y-4">
-                      {Object.values(groupedItems).map(group => (
-                        <div key={`${group.dimension}-${group.materialType}`} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                          <div className={`p-3 font-bold flex justify-between items-center ${group.materialType === 'Trykkimpregnert' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
-                            <div className="flex flex-col">
-                                <span className="text-sm uppercase opacity-70 leading-none mb-1">{group.materialType}</span>
-                                <span>{group.dimension} mm</span>
-                            </div>
-                            <span className="text-lg">{group.totalMeters.toFixed(2)} lm</span>
-                          </div>
-                          <div className="p-2 space-y-1">
-                            {group.items.map(i => (
-                              <div key={i.id} className="flex justify-between items-center text-sm p-3 bg-gray-50 rounded-xl">
-                                <span className="font-medium">{i.quantity} stk à {i.length} m</span>
-                                <button onClick={() => setItems(items.filter(x => x.id !== i.id))} className="text-red-400 p-2 hover:bg-red-50 rounded-full transition-colors active:scale-90"><Trash2 size={16}/></button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'liste' && (
-                   <div className="space-y-4">
-                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <h2 className="text-xl font-bold mb-6 border-b pb-2 flex items-center">
-                           <Layers size={20} className="mr-2 text-blue-600"/> Oppsummering
-                        </h2>
-                        <div className="space-y-4">
-                           {Object.values(groupedItems).length === 0 ? (
-                             <p className="text-center text-gray-400 py-10">Ingen varer registrert ennå.</p>
-                           ) : (
-                             Object.values(groupedItems).map(g => (
-                               <div key={g.dimension + g.materialType} className="flex justify-between items-end border-b border-gray-50 pb-2 last:border-0">
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-gray-400 uppercase">{g.materialType}</span>
-                                    <span className="text-gray-800 font-bold">{g.dimension} mm</span>
-                                  </div>
-                                  <span className="font-black text-xl text-blue-600">{g.totalMeters.toFixed(2)} <span className="text-sm font-normal text-gray-400">lm</span></span>
-                               </div>
-                             ))
-                           )}
-                        </div>
-                      </div>
-                   </div>
-                )}
-              </main>
-
-              {showBarcodeModal && (
-                <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-                  <div className="bg-white w-full rounded-3xl p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in duration-200">
-                    <div className="w-16 h-1 bg-gray-200 rounded-full mx-auto mb-2"></div>
-                    <h2 className="text-xl font-bold text-center">Ny vare funnet!</h2>
-                    <p className="text-gray-500 text-center text-sm">Hvilket materiale tilhører denne strekkoden?</p>
-                    <div className="bg-blue-50 p-4 rounded-2xl text-center font-mono font-bold text-blue-600 break-all">{scannedCode}</div>
-                    
-                    <div className="space-y-3">
-                        <select value={dimension} onChange={e => setDimension(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold shadow-sm outline-none">
-                          {commonDimensions.map(d => <option key={d} value={d}>{d} mm</option>)}
-                        </select>
-
-                        <div className="flex bg-gray-100 p-1 rounded-2xl">
-                          {['Vanlig', 'Trykkimpregnert'].map(m => (
-                            <button key={m} onClick={() => setMaterialType(m)} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${materialType === m ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>{m}</button>
-                          ))}
-                        </div>
-                    </div>
-
-                    <div className="pt-2 space-y-2">
-                        <button onClick={saveBarcodeLink} className="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-transform">Lagre og husk</button>
-                        <button onClick={() => setShowBarcodeModal(false)} className="w-full text-gray-400 font-bold py-3 hover:text-gray-600 transition-colors">Avbryt</button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-          );
-        }
+        </section>
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        <!-- EAN-13 Tester -->
+        <section class="bg-white p-6 rounded-3xl shadow-sm space-y-6">
+            <h2 class="text-xl font-bold text-green-600 border-b pb-2">EAN-13 (Variabel butikk-kode)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="flex flex-col items-center p-4 border rounded-2xl">
+                    <span class="text-sm font-bold text-gray-400 mb-2">3.60 meter</span>
+                    <svg id="code3"></svg>
+                    <p class="text-xs mt-2 text-gray-500 font-mono">Kode: 2300000003601</p>
+                </div>
+                <div class="flex flex-col items-center p-4 border rounded-2xl">
+                    <span class="text-sm font-bold text-gray-400 mb-2">5.40 meter</span>
+                    <svg id="code4"></svg>
+                    <p class="text-xs mt-2 text-gray-500 font-mono">Kode: 2300000005401</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-center text-gray-400 text-sm italic">
+            Merk: For EAN-13 koder må appen være programmert til å se på posisjon 7-12 for lengdeinfo.
+        </footer>
+    </div>
+
+    <script>
+        // Generer strekkodene ved oppstart
+        window.onload = function() {
+            // GS1-128 (CODE128 i dette biblioteket)
+            JsBarcode("#code1", "3112000420", { format: "CODE128", displayValue: false, height: 80 });
+            JsBarcode("#code2", "3112000480", { format: "CODE128", displayValue: false, height: 80 });
+            
+            // EAN-13
+            JsBarcode("#code3", "2300000003601", { format: "EAN13", displayValue: true, height: 80 });
+            JsBarcode("#code4", "2300000005401", { format: "EAN13", displayValue: true, height: 80 });
+        };
     </script>
 </body>
 </html>
